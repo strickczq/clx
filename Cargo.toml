@@ -1,0 +1,20 @@
+[package]
+name = "clx"
+version = "0.1.0"
+edition = "2024"
+description = "CLaude eXecutor — interactive profile selection, configurable models/providers, exec into claude"
+license = "MIT"
+repository = "https://github.com/strickczq/clx"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "0.8"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
