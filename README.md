@@ -20,6 +20,16 @@ Written in Rust.
 
 ## Installation
 
+With [mise](https://mise.jdx.dev) (prebuilt binary from the latest release):
+
+```bash
+mise use -g github:strickczq/clx
+# or pin a version
+mise use -g github:strickczq/clx@v0.1.0
+```
+
+With cargo:
+
 ```bash
 cargo install --git https://github.com/strickczq/clx
 ```
