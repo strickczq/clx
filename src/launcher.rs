@@ -42,6 +42,14 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
         env.push(("ANTHROPIC_AUTH_TOKEN".into(), token));
         // No need to set ANTHROPIC_API_KEY: it is in MANAGED_VARS, so it is
         // already removed from claude's environment.
+
+        // A custom provider means an unofficial (non-Anthropic) endpoint, so
+        // suppress claude's non-essential traffic — telemetry and similar
+        // background requests shouldn't be sent to a third-party gateway.
+        env.push((
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(),
+            "1".into(),
+        ));
     }
 
     // Auto-compaction.
@@ -80,6 +88,7 @@ const MANAGED_VARS: &[&str] = &[
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
 ];
@@ -143,6 +152,27 @@ mod tests {
         assert_eq!(
             env_value(&env, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"),
             Some("80")
+        );
+        // A custom provider is unofficial, so non-essential traffic is disabled.
+        assert_eq!(
+            env_value(&env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn no_provider_leaves_nonessential_traffic_untouched() {
+        let profile = Profile {
+            models: Some(Models {
+                default: Some("opus".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let env = compute_preview_env(&profile);
+        assert_eq!(
+            env_value(&env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
+            None
         );
     }
 

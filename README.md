@@ -120,6 +120,11 @@ clx --version
    models/provider/auto-compaction
 4. **Launch** — builds environment and `execve`s into `claude`
 
+A profile with a custom `provider` targets an unofficial (non-Anthropic)
+endpoint, so clx automatically sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+for it — keeping telemetry and other background requests off the third-party
+gateway.
+
 The launcher **replaces** its own process with `claude`, so there is no wrapper
 process left running.
 
