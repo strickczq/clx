@@ -122,8 +122,9 @@ clx --version
 
 A profile with a custom `provider` targets an unofficial (non-Anthropic)
 endpoint, so clx automatically sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
-for it — keeping telemetry and other background requests off the third-party
-gateway.
+(keeping telemetry and other background requests off the third-party gateway)
+and `CLAUDE_CODE_ATTRIBUTION_HEADER=0` (dropping the attribution header that
+carries no meaning off Anthropic) for it.
 
 The launcher **replaces** its own process with `claude`, so there is no wrapper
 process left running.

@@ -43,13 +43,16 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
         // No need to set ANTHROPIC_API_KEY: it is in MANAGED_VARS, so it is
         // already removed from claude's environment.
 
-        // A custom provider means an unofficial (non-Anthropic) endpoint, so
-        // suppress claude's non-essential traffic — telemetry and similar
-        // background requests shouldn't be sent to a third-party gateway.
+        // A custom provider means an unofficial (non-Anthropic) endpoint, so:
+        //   - suppress claude's non-essential traffic — telemetry and similar
+        //     background requests shouldn't hit a third-party gateway;
+        //   - drop the attribution header — it carries no meaning off Anthropic
+        //     and need not be advertised to a third-party gateway.
         env.push((
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(),
             "1".into(),
         ));
+        env.push(("CLAUDE_CODE_ATTRIBUTION_HEADER".into(), "0".into()));
     }
 
     // Auto-compaction.
@@ -89,6 +92,7 @@ const MANAGED_VARS: &[&str] = &[
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
 ];
@@ -153,11 +157,13 @@ mod tests {
             env_value(&env, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"),
             Some("80")
         );
-        // A custom provider is unofficial, so non-essential traffic is disabled.
+        // A custom provider is unofficial, so non-essential traffic is disabled
+        // and the attribution header is dropped.
         assert_eq!(
             env_value(&env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
             Some("1")
         );
+        assert_eq!(env_value(&env, "CLAUDE_CODE_ATTRIBUTION_HEADER"), Some("0"));
     }
 
     #[test]
@@ -174,6 +180,7 @@ mod tests {
             env_value(&env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
             None
         );
+        assert_eq!(env_value(&env, "CLAUDE_CODE_ATTRIBUTION_HEADER"), None);
     }
 
     #[test]
