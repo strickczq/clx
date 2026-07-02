@@ -74,9 +74,14 @@ provider.env_key = "WORK_API_TOKEN"
 | `models.default_opus`   | Opus model (`ANTHROPIC_DEFAULT_OPUS_MODEL`)             |
 | `provider.base_url`     | API base URL (`ANTHROPIC_BASE_URL`)                     |
 | `provider.env_key`      | Env var holding the auth token                          |
+| `provider.key`          | Auth token inline (alternative to `env_key`)            |
 | `auto_compact_pct`      | Auto-compaction threshold % (1-100)                     |
 | `auto_compact_window`   | Auto-compaction window size                             |
 | `skip_permissions`      | Pass `--dangerously-skip-permissions` (default `false`) |
+
+A provider needs exactly one auth source: `env_key` (the name of an environment
+variable holding the token — keeps the secret out of the config file) or `key`
+(the token embedded directly in the config). Set one, not both.
 
 `skip_permissions` may also be set in the `[global]` table as a default for
 every profile; a profile's own value (including via `extends`) takes precedence:

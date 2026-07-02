@@ -33,11 +33,18 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
     // Provider.
     if let Some(ref provider) = profile.provider {
         env.push(("ANTHROPIC_BASE_URL".into(), provider.base_url.clone()));
-        let token = if reveal {
-            std::env::var(&provider.env_key)
-                .map_err(|_| Error::MissingEnvVar(provider.env_key.clone()))?
-        } else {
-            format!("${}", provider.env_key)
+        // The token comes from either an env var (`env_key`) or an inline
+        // literal (`key`); config validation guarantees exactly one is set. In
+        // preview mode we never emit the real secret — an env var shows as
+        // `$NAME` and an inline key is masked.
+        let token = match (&provider.env_key, &provider.key) {
+            (Some(env_key), _) if reveal => {
+                std::env::var(env_key).map_err(|_| Error::MissingEnvVar(env_key.clone()))?
+            }
+            (Some(env_key), _) => format!("${env_key}"),
+            (_, Some(key)) if reveal => key.clone(),
+            (_, Some(_)) => "****".into(),
+            (None, None) => return Err(Error::ProviderMissingAuth),
         };
         env.push(("ANTHROPIC_AUTH_TOKEN".into(), token));
         // No need to set ANTHROPIC_API_KEY: it is in MANAGED_VARS, so it is
@@ -141,7 +148,8 @@ mod tests {
             }),
             provider: Some(Provider {
                 base_url: "https://gw".into(),
-                env_key: "TOKEN_VAR".into(),
+                env_key: Some("TOKEN_VAR".into()),
+                key: None,
             }),
             auto_compact_pct: Some(80),
             ..Default::default()
@@ -164,6 +172,35 @@ mod tests {
             Some("1")
         );
         assert_eq!(env_value(&env, "CLAUDE_CODE_ATTRIBUTION_HEADER"), Some("0"));
+    }
+
+    #[test]
+    fn preview_masks_inline_key() {
+        let profile = Profile {
+            provider: Some(Provider {
+                base_url: "https://gw".into(),
+                env_key: None,
+                key: Some("sk-secret".into()),
+            }),
+            ..Default::default()
+        };
+        let env = compute_preview_env(&profile);
+        // The literal key must never appear in preview output.
+        assert_eq!(env_value(&env, "ANTHROPIC_AUTH_TOKEN"), Some("****"));
+    }
+
+    #[test]
+    fn launch_env_uses_inline_key_verbatim() {
+        let profile = Profile {
+            provider: Some(Provider {
+                base_url: "https://gw".into(),
+                env_key: None,
+                key: Some("sk-secret".into()),
+            }),
+            ..Default::default()
+        };
+        let env = build_env(&profile, true).unwrap();
+        assert_eq!(env_value(&env, "ANTHROPIC_AUTH_TOKEN"), Some("sk-secret"));
     }
 
     #[test]
@@ -197,7 +234,8 @@ mod tests {
             }),
             provider: Some(Provider {
                 base_url: "u".into(),
-                env_key: "K".into(),
+                env_key: Some("K".into()),
+                key: None,
             }),
             auto_compact_pct: Some(50),
             auto_compact_window: Some(100),

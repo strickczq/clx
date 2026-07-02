@@ -102,7 +102,8 @@ mod tests {
             }),
             provider: Some(Provider {
                 base_url: "https://base".into(),
-                env_key: "BASE_KEY".into(),
+                env_key: Some("BASE_KEY".into()),
+                key: None,
             }),
             ..profile("base")
         };
@@ -119,7 +120,10 @@ mod tests {
         assert_eq!(models.default.as_deref(), Some("sonnet")); // overridden
         assert_eq!(models.small_fast.as_deref(), Some("haiku")); // inherited
         // Provider is inherited untouched.
-        assert_eq!(resolved.provider.unwrap().env_key, "BASE_KEY");
+        assert_eq!(
+            resolved.provider.unwrap().env_key.as_deref(),
+            Some("BASE_KEY")
+        );
     }
 
     #[test]

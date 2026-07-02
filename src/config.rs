@@ -71,11 +71,14 @@ impl Models {
     }
 }
 
-/// API provider configuration.
+/// API provider configuration. Exactly one auth source must be set: `env_key`
+/// names an environment variable holding the token (keeping the secret out of
+/// the config file), while `key` embeds the token directly.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Provider {
     pub base_url: String,
-    pub env_key: String,
+    pub env_key: Option<String>,
+    pub key: Option<String>,
 }
 
 // MARK: - Constants
@@ -129,7 +132,28 @@ pub fn load_config() -> Result<Config, Error> {
         ));
     }
 
+    for profile in &config.profiles {
+        if let Some(msg) = provider_auth_error(profile) {
+            return Err(Error::ConfigInvalid(
+                path.display().to_string(),
+                format!("profile \"{}\": {msg}", profile.name),
+            ));
+        }
+    }
+
     Ok(config)
+}
+
+/// Validate a profile's provider auth: exactly one of `env_key` or `key` must
+/// be set. Returns a human-readable message describing the problem, or `None`
+/// when the provider is absent or well-formed.
+fn provider_auth_error(profile: &Profile) -> Option<&'static str> {
+    let provider = profile.provider.as_ref()?;
+    match (&provider.env_key, &provider.key) {
+        (Some(_), Some(_)) => Some("provider sets both `env_key` and `key`; set only one"),
+        (None, None) => Some("provider must set either `env_key` or `key`"),
+        _ => None,
+    }
 }
 
 /// Deserialize `auto_compact_pct`, enforcing the documented 1-100 range at
@@ -211,6 +235,24 @@ mod tests {
         };
         assert_eq!(suggest_profile(&config, "wrok").as_deref(), Some("work"));
         assert_eq!(suggest_profile(&config, "zzzzzzzz"), None);
+    }
+
+    #[test]
+    fn provider_auth_requires_exactly_one_source() {
+        let provider = |env_key: Option<&str>, key: Option<&str>| Profile {
+            provider: Some(Provider {
+                base_url: "https://gw".into(),
+                env_key: env_key.map(Into::into),
+                key: key.map(Into::into),
+            }),
+            ..Default::default()
+        };
+        assert!(provider_auth_error(&provider(Some("K"), None)).is_none());
+        assert!(provider_auth_error(&provider(None, Some("sk-x"))).is_none());
+        assert!(provider_auth_error(&provider(Some("K"), Some("sk-x"))).is_some());
+        assert!(provider_auth_error(&provider(None, None)).is_some());
+        // No provider at all is fine.
+        assert!(provider_auth_error(&Profile::default()).is_none());
     }
 
     #[test]

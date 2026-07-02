@@ -22,6 +22,8 @@ pub enum Error {
     UnknownParent(String, String),
     #[error("environment variable {0} is not set")]
     MissingEnvVar(String),
+    #[error("provider has no auth configured: set `env_key` or `key`")]
+    ProviderMissingAuth,
     #[error("failed to launch claude: {0}")]
     ExecFailed(std::io::Error),
     #[error("failed to run fzf: {0} — is fzf installed?")]
