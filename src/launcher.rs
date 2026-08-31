@@ -18,10 +18,10 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
     if let Some(ref models) = profile.models {
         let model_vars = [
             ("ANTHROPIC_MODEL", &models.default),
-            ("ANTHROPIC_SMALL_FAST_MODEL", &models.small_fast),
             ("ANTHROPIC_DEFAULT_HAIKU_MODEL", &models.default_haiku),
             ("ANTHROPIC_DEFAULT_SONNET_MODEL", &models.default_sonnet),
             ("ANTHROPIC_DEFAULT_OPUS_MODEL", &models.default_opus),
+            ("CLAUDE_CODE_SUBAGENT_MODEL", &models.subagent),
         ];
         for (key, value) in model_vars {
             if let Some(v) = value {
@@ -70,6 +70,10 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
         env.push(("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), window.to_string()));
     }
 
+    if let Some(level) = profile.effort_level {
+        env.push(("CLAUDE_CODE_EFFORT_LEVEL".into(), level.as_str().into()));
+    }
+
     Ok(env)
 }
 
@@ -91,10 +95,10 @@ pub fn compute_preview_env(profile: &Profile) -> Vec<(String, String)> {
 /// profile's `ANTHROPIC_AUTH_TOKEN` inside claude.
 const MANAGED_VARS: &[&str] = &[
     "ANTHROPIC_MODEL",
-    "ANTHROPIC_SMALL_FAST_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_API_KEY",
@@ -102,6 +106,7 @@ const MANAGED_VARS: &[&str] = &[
     "CLAUDE_CODE_ATTRIBUTION_HEADER",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    "CLAUDE_CODE_EFFORT_LEVEL",
 ];
 
 // MARK: - launch
@@ -137,7 +142,7 @@ pub fn launch(profile: &Profile, extra_args: &[String]) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Models, Provider};
+    use crate::config::{EffortLevel, Models, Provider};
 
     #[test]
     fn preview_env_uses_placeholder_token_and_skips_unset_models() {
@@ -157,7 +162,7 @@ mod tests {
         let env = compute_preview_env(&profile);
 
         assert_eq!(env_value(&env, "ANTHROPIC_MODEL"), Some("opus"));
-        assert_eq!(env_value(&env, "ANTHROPIC_SMALL_FAST_MODEL"), None); // unset
+        assert_eq!(env_value(&env, "CLAUDE_CODE_SUBAGENT_MODEL"), None); // unset
         assert_eq!(env_value(&env, "ANTHROPIC_BASE_URL"), Some("https://gw"));
         // Token is a placeholder, never the real secret, in preview mode.
         assert_eq!(env_value(&env, "ANTHROPIC_AUTH_TOKEN"), Some("$TOKEN_VAR"));
@@ -165,6 +170,7 @@ mod tests {
             env_value(&env, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"),
             Some("80")
         );
+        assert_eq!(env_value(&env, "CLAUDE_CODE_EFFORT_LEVEL"), None); // unset
         // A custom provider is unofficial, so non-essential traffic is disabled
         // and the attribution header is dropped.
         assert_eq!(
@@ -227,10 +233,10 @@ mod tests {
         let profile = Profile {
             models: Some(Models {
                 default: Some("a".into()),
-                small_fast: Some("b".into()),
                 default_haiku: Some("c".into()),
                 default_sonnet: Some("d".into()),
                 default_opus: Some("e".into()),
+                subagent: Some("b".into()),
             }),
             provider: Some(Provider {
                 base_url: "u".into(),
@@ -239,6 +245,7 @@ mod tests {
             }),
             auto_compact_pct: Some(50),
             auto_compact_window: Some(100),
+            effort_level: Some(EffortLevel::High),
             ..Default::default()
         };
         for (key, _) in compute_preview_env(&profile) {

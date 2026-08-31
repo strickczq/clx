@@ -40,16 +40,43 @@ pub struct Profile {
     pub auto_compact_window: Option<u32>,
     /// Override whether `--dangerously-skip-permissions` is passed.
     pub skip_permissions: Option<bool>,
+    /// Effort level (`CLAUDE_CODE_EFFORT_LEVEL`).
+    pub effort_level: Option<EffortLevel>,
+}
+
+/// Claude Code effort levels. Values match the env var / `--effort` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EffortLevel {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+    Auto,
+}
+
+impl EffortLevel {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+            Self::Auto => "auto",
+        }
+    }
 }
 
 /// Model overrides for a profile.
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct Models {
     pub default: Option<String>,
-    pub small_fast: Option<String>,
     pub default_haiku: Option<String>,
     pub default_sonnet: Option<String>,
     pub default_opus: Option<String>,
+    pub subagent: Option<String>,
 }
 
 impl Models {
@@ -64,10 +91,10 @@ impl Models {
             };
         }
         set!(default);
-        set!(small_fast);
         set!(default_haiku);
         set!(default_sonnet);
         set!(default_opus);
+        set!(subagent);
     }
 }
 
@@ -265,5 +292,19 @@ mod tests {
         assert!(parse(0).is_err());
         assert!(parse(101).is_err());
         assert!(parse(50).is_ok());
+    }
+
+    #[test]
+    fn effort_level_accepts_known_values_only() {
+        let parse = |level: &str| {
+            toml::from_str::<Config>(&format!(
+                "[[profiles]]\nname = \"p\"\neffort_level = \"{level}\"\n"
+            ))
+        };
+        for level in ["low", "medium", "high", "xhigh", "max", "auto"] {
+            let config = parse(level).unwrap();
+            assert_eq!(config.profiles[0].effort_level.unwrap().as_str(), level);
+        }
+        assert!(parse("ultra").is_err());
     }
 }

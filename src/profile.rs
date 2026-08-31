@@ -63,6 +63,11 @@ pub fn resolve_profile(config: &Config, name: &str) -> Result<Profile, Error> {
         if entry.skip_permissions.is_some() {
             merged.skip_permissions = entry.skip_permissions;
         }
+
+        // effort_level: child overrides parent.
+        if entry.effort_level.is_some() {
+            merged.effort_level = entry.effort_level;
+        }
     }
 
     // Fall back to the global default when no profile in the chain set it.
@@ -76,7 +81,7 @@ pub fn resolve_profile(config: &Config, name: &str) -> Result<Profile, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Global, Models, Provider};
+    use crate::config::{EffortLevel, Global, Models, Provider};
 
     fn cfg(profiles: Vec<Profile>) -> Config {
         Config {
@@ -97,7 +102,7 @@ mod tests {
         let base = Profile {
             models: Some(Models {
                 default: Some("opus".into()),
-                small_fast: Some("haiku".into()),
+                subagent: Some("haiku".into()),
                 ..Default::default()
             }),
             provider: Some(Provider {
@@ -105,6 +110,7 @@ mod tests {
                 env_key: Some("BASE_KEY".into()),
                 key: None,
             }),
+            effort_level: Some(EffortLevel::High),
             ..profile("base")
         };
         let child = Profile {
@@ -118,12 +124,13 @@ mod tests {
         let resolved = resolve_profile(&cfg(vec![base, child]), "child").unwrap();
         let models = resolved.models.unwrap();
         assert_eq!(models.default.as_deref(), Some("sonnet")); // overridden
-        assert_eq!(models.small_fast.as_deref(), Some("haiku")); // inherited
+        assert_eq!(models.subagent.as_deref(), Some("haiku")); // inherited
         // Provider is inherited untouched.
         assert_eq!(
             resolved.provider.unwrap().env_key.as_deref(),
             Some("BASE_KEY")
         );
+        assert_eq!(resolved.effort_level, Some(EffortLevel::High)); // inherited
     }
 
     #[test]

@@ -25,7 +25,7 @@ With [mise](https://mise.jdx.dev) (prebuilt binary from the latest release):
 ```bash
 mise use -g github:strickczq/clx
 # or pin a version
-mise use -g github:strickczq/clx@v0.1.0
+mise use -g github:strickczq/clx@v0.4.0
 ```
 
 With cargo:
@@ -68,16 +68,17 @@ provider.env_key = "WORK_API_TOKEN"
 | `extends`               | Parent profile to inherit from                          |
 | `description`           | Human-readable description (shown in picker preview)    |
 | `models.default`        | Default model (`ANTHROPIC_MODEL`)                       |
-| `models.small_fast`     | Small/fast model (`ANTHROPIC_SMALL_FAST_MODEL`)         |
 | `models.default_haiku`  | Haiku model (`ANTHROPIC_DEFAULT_HAIKU_MODEL`)           |
 | `models.default_sonnet` | Sonnet model (`ANTHROPIC_DEFAULT_SONNET_MODEL`)         |
 | `models.default_opus`   | Opus model (`ANTHROPIC_DEFAULT_OPUS_MODEL`)             |
+| `models.subagent`       | Sub-agent model (`CLAUDE_CODE_SUBAGENT_MODEL`)          |
 | `provider.base_url`     | API base URL (`ANTHROPIC_BASE_URL`)                     |
 | `provider.env_key`      | Env var holding the auth token                          |
 | `provider.key`          | Auth token inline (alternative to `env_key`)            |
 | `auto_compact_pct`      | Auto-compaction threshold % (1-100)                     |
 | `auto_compact_window`   | Auto-compaction window size                             |
 | `skip_permissions`      | Pass `--dangerously-skip-permissions` (default `false`) |
+| `effort_level`          | Effort level (`CLAUDE_CODE_EFFORT_LEVEL`)               |
 
 A provider needs exactly one auth source: `env_key` (the name of an environment
 variable holding the token — keeps the secret out of the config file) or `key`
