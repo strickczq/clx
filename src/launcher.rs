@@ -69,6 +69,9 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
     if let Some(window) = profile.auto_compact_window {
         env.push(("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), window.to_string()));
     }
+    if let Some(tokens) = profile.max_context_tokens {
+        env.push(("CLAUDE_CODE_MAX_CONTEXT_TOKENS".into(), tokens.to_string()));
+    }
 
     if let Some(level) = profile.effort_level {
         env.push(("CLAUDE_CODE_EFFORT_LEVEL".into(), level.as_str().into()));
@@ -106,6 +109,7 @@ const MANAGED_VARS: &[&str] = &[
     "CLAUDE_CODE_ATTRIBUTION_HEADER",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
     "CLAUDE_CODE_EFFORT_LEVEL",
 ];
 
@@ -171,6 +175,7 @@ mod tests {
             Some("80")
         );
         assert_eq!(env_value(&env, "CLAUDE_CODE_EFFORT_LEVEL"), None); // unset
+        assert_eq!(env_value(&env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS"), None); // unset
         // A custom provider is unofficial, so non-essential traffic is disabled
         // and the attribution header is dropped.
         assert_eq!(
@@ -245,6 +250,7 @@ mod tests {
             }),
             auto_compact_pct: Some(50),
             auto_compact_window: Some(100),
+            max_context_tokens: Some(1_000_000),
             effort_level: Some(EffortLevel::High),
             ..Default::default()
         };

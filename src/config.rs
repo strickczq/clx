@@ -38,6 +38,9 @@ pub struct Profile {
     pub auto_compact_pct: Option<u32>,
     /// Auto-compaction window size.
     pub auto_compact_window: Option<u32>,
+    /// Assumed context window (`CLAUDE_CODE_MAX_CONTEXT_TOKENS`).
+    #[serde(default, deserialize_with = "de_max_context_tokens")]
+    pub max_context_tokens: Option<u32>,
     /// Override whether `--dangerously-skip-permissions` is passed.
     pub skip_permissions: Option<bool>,
     /// Effort level (`CLAUDE_CODE_EFFORT_LEVEL`).
@@ -200,6 +203,23 @@ where
     Ok(value)
 }
 
+/// Deserialize `max_context_tokens`, requiring a positive count so the error
+/// carries the offending line from the TOML.
+fn de_max_context_tokens<'de, D>(de: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<u32>::deserialize(de)?;
+    if let Some(tokens) = value
+        && tokens == 0
+    {
+        return Err(de::Error::custom(
+            "max_context_tokens must be a positive integer, got 0",
+        ));
+    }
+    Ok(value)
+}
+
 /// Look up a profile by name.
 pub fn find_profile<'a>(config: &'a Config, name: &str) -> Option<&'a Profile> {
     config.profiles.iter().find(|p| p.name == name)
@@ -292,6 +312,20 @@ mod tests {
         assert!(parse(0).is_err());
         assert!(parse(101).is_err());
         assert!(parse(50).is_ok());
+    }
+
+    #[test]
+    fn max_context_tokens_must_be_positive() {
+        let parse = |tokens: u32| {
+            toml::from_str::<Config>(&format!(
+                "[[profiles]]\nname = \"p\"\nmax_context_tokens = {tokens}\n"
+            ))
+        };
+        assert!(parse(0).is_err());
+        assert_eq!(
+            parse(1_000_000).unwrap().profiles[0].max_context_tokens,
+            Some(1_000_000)
+        );
     }
 
     #[test]

@@ -77,6 +77,7 @@ provider.env_key = "WORK_API_TOKEN"
 | `provider.key`          | Auth token inline (alternative to `env_key`)            |
 | `auto_compact_pct`      | Auto-compaction threshold % (1-100)                     |
 | `auto_compact_window`   | Auto-compaction window size                             |
+| `max_context_tokens`    | Assumed context window (`CLAUDE_CODE_MAX_CONTEXT_TOKENS`) |
 | `skip_permissions`      | Pass `--dangerously-skip-permissions` (default `false`) |
 | `effort_level`          | Effort level (`CLAUDE_CODE_EFFORT_LEVEL`)               |
 

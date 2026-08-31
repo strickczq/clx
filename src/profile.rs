@@ -58,6 +58,9 @@ pub fn resolve_profile(config: &Config, name: &str) -> Result<Profile, Error> {
         if entry.auto_compact_window.is_some() {
             merged.auto_compact_window = entry.auto_compact_window;
         }
+        if entry.max_context_tokens.is_some() {
+            merged.max_context_tokens = entry.max_context_tokens;
+        }
 
         // skip_permissions: child overrides parent.
         if entry.skip_permissions.is_some() {
@@ -111,6 +114,7 @@ mod tests {
                 key: None,
             }),
             effort_level: Some(EffortLevel::High),
+            max_context_tokens: Some(1_000_000),
             ..profile("base")
         };
         let child = Profile {
@@ -131,6 +135,7 @@ mod tests {
             Some("BASE_KEY")
         );
         assert_eq!(resolved.effort_level, Some(EffortLevel::High)); // inherited
+        assert_eq!(resolved.max_context_tokens, Some(1_000_000)); // inherited
     }
 
     #[test]
