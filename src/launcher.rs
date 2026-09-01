@@ -60,6 +60,13 @@ fn build_env(profile: &Profile, reveal: bool) -> Result<Vec<(String, String)>, E
             "1".into(),
         ));
         env.push(("CLAUDE_CODE_ATTRIBUTION_HEADER".into(), "0".into()));
+        // Explore caps `inherit` onto a cheaper first-party model so a pricey
+        // parent isn't spent on search. That rewrite used to lose to
+        // CLAUDE_CODE_SUBAGENT_MODEL; as of 2.1.251 the env is only a default
+        // (https://code.claude.com/docs/en/changelog#2-1-251), so the cap wins
+        // and Explore requests opus — which third-party gateways don't serve.
+        // Undocumented; first shipped in 2.1.217.
+        env.push(("CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP".into(), "1".into()));
     }
 
     // Auto-compaction.
@@ -107,6 +114,7 @@ const MANAGED_VARS: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
     "CLAUDE_CODE_ATTRIBUTION_HEADER",
+    "CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
@@ -176,13 +184,17 @@ mod tests {
         );
         assert_eq!(env_value(&env, "CLAUDE_CODE_EFFORT_LEVEL"), None); // unset
         assert_eq!(env_value(&env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS"), None); // unset
-        // A custom provider is unofficial, so non-essential traffic is disabled
-        // and the attribution header is dropped.
+        // A custom provider is unofficial, so non-essential traffic is disabled,
+        // the attribution header is dropped, and Explore's inherit cap is off.
         assert_eq!(
             env_value(&env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
             Some("1")
         );
         assert_eq!(env_value(&env, "CLAUDE_CODE_ATTRIBUTION_HEADER"), Some("0"));
+        assert_eq!(
+            env_value(&env, "CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP"),
+            Some("1")
+        );
     }
 
     #[test]
@@ -229,6 +241,10 @@ mod tests {
             None
         );
         assert_eq!(env_value(&env, "CLAUDE_CODE_ATTRIBUTION_HEADER"), None);
+        assert_eq!(
+            env_value(&env, "CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP"),
+            None
+        );
     }
 
     #[test]

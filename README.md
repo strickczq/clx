@@ -133,6 +133,13 @@ endpoint, so clx automatically sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
 and `CLAUDE_CODE_ATTRIBUTION_HEADER=0` (dropping the attribution header that
 carries no meaning off Anthropic) for it.
 
+It also sets `CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP=1`. Explore caps
+`inherit` to a cheaper first-party model so a pricey parent isn't spent on
+search; since [2.1.251](https://code.claude.com/docs/en/changelog#2-1-251)
+`CLAUDE_CODE_SUBAGENT_MODEL` is only a default and no longer overrides that
+cap, so without this env Explore would request opus from a gateway that
+doesn't serve it.
+
 The launcher **replaces** its own process with `claude`, so there is no wrapper
 process left running.
 
