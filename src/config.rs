@@ -9,6 +9,7 @@ use crate::error::Error;
 
 /// Top-level config matching the config file structure.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Global defaults applied to every profile unless overridden.
     #[serde(default)]
@@ -20,6 +21,7 @@ pub struct Config {
 /// Global config defaults — the `[global]` table. A profile's own value
 /// (including via `extends`) takes precedence over these.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Global {
     /// Default for passing `--dangerously-skip-permissions`.
     pub skip_permissions: Option<bool>,
@@ -27,6 +29,7 @@ pub struct Global {
 
 /// A profile — both the config entry and the launch-time representation.
 #[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Profile {
     pub name: String,
     pub extends: Option<String>,
@@ -74,6 +77,7 @@ impl EffortLevel {
 
 /// Model overrides for a profile.
 #[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Models {
     pub default: Option<String>,
     pub default_haiku: Option<String>,
@@ -105,6 +109,7 @@ impl Models {
 /// names an environment variable holding the token (keeping the secret out of
 /// the config file), while `key` embeds the token directly.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Provider {
     pub base_url: String,
     pub env_key: Option<String>,
@@ -152,8 +157,8 @@ pub fn load_config() -> Result<Config, Error> {
     let content = std::fs::read_to_string(&path)
         .map_err(|e| Error::ConfigRead(path.display().to_string(), e))?;
 
-    let config: Config =
-        toml::from_str(&content).map_err(|e| Error::ConfigParse(path.display().to_string(), e))?;
+    let config: Config = toml::from_str(&content)
+        .map_err(|e| Error::ConfigParse(path.display().to_string(), format_toml_error(e)))?;
 
     if config.profiles.is_empty() {
         return Err(Error::ConfigInvalid(
@@ -228,13 +233,66 @@ pub fn find_profile<'a>(config: &'a Config, name: &str) -> Option<&'a Profile> {
 /// Suggest the closest profile name to `name` for a "did you mean" hint.
 /// Returns `Some` only when a reasonably close match exists.
 pub fn suggest_profile(config: &Config, name: &str) -> Option<String> {
-    config
-        .profiles
-        .iter()
-        .map(|p| (levenshtein(&p.name, name), &p.name))
-        .filter(|(d, candidate)| *d <= candidate.len().max(name.len()) / 2)
+    suggest(name, config.profiles.iter().map(|p| p.name.as_str())).map(str::to_owned)
+}
+
+/// Format a TOML deserialize error, appending a did-you-mean hint when serde
+/// rejected an unknown field that is close to a known one.
+fn format_toml_error(err: toml::de::Error) -> String {
+    let mut text = err.to_string();
+    let hint = unknown_field_hint(err.message()).or_else(|| unknown_field_hint(&text));
+    if let Some(hint) = hint {
+        text.push('\n');
+        text.push_str(&hint);
+    }
+    text
+}
+
+/// Parse serde's `unknown field` message and, if a close known field exists,
+/// return `did you mean \`field\`?`.
+fn unknown_field_hint(msg: &str) -> Option<String> {
+    let (unknown, expected) = parse_unknown_field_error(msg)?;
+    let hint = suggest(unknown, expected)?;
+    Some(format!("did you mean `{hint}`?"))
+}
+
+/// Pull `(unknown, expected_fields)` out of serde's unknown-field wording:
+/// - `unknown field \`foo\`, expected \`bar\``
+/// - `unknown field \`foo\`, expected \`bar\` or \`baz\``
+/// - `unknown field \`foo\`, expected one of \`a\`, \`b\`, \`c\``
+fn parse_unknown_field_error(msg: &str) -> Option<(&str, Vec<&str>)> {
+    let rest = msg.split("unknown field `").nth(1)?;
+    let (unknown, rest) = rest.split_once('`')?;
+    let rest = rest.trim_start_matches([' ', ',']);
+    let rest = rest.strip_prefix("expected ")?;
+    if rest.starts_with("there are no fields") {
+        return None;
+    }
+    let expected = if let Some(list) = rest.strip_prefix("one of ") {
+        parse_backticked_list(list)
+    } else if let Some((a, b)) = rest.split_once("` or `") {
+        vec![a.trim_matches('`'), b.trim_matches('`')]
+    } else {
+        vec![rest.trim_matches('`').trim_end_matches(['.', ' '])]
+    };
+    let expected: Vec<&str> = expected.into_iter().filter(|s| !s.is_empty()).collect();
+    (!expected.is_empty()).then_some((unknown, expected))
+}
+
+fn parse_backticked_list(list: &str) -> Vec<&str> {
+    list.split("`, `")
+        .map(|s| s.trim().trim_matches('`').trim_end_matches(['.', ' ']))
+        .collect()
+}
+
+/// Closest candidate by Levenshtein distance, if close enough to be a typo.
+fn suggest<'a>(unknown: &str, candidates: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    candidates
+        .into_iter()
+        .map(|candidate| (levenshtein(candidate, unknown), candidate))
+        .filter(|(d, candidate)| *d > 0 && *d <= candidate.len().max(unknown.len()) / 2)
         .min_by_key(|(d, _)| *d)
-        .map(|(_, candidate)| candidate.clone())
+        .map(|(_, candidate)| candidate)
 }
 
 /// Plain Levenshtein edit distance — small, no external dependency.
@@ -326,6 +384,68 @@ mod tests {
             parse(1_000_000).unwrap().profiles[0].max_context_tokens,
             Some(1_000_000)
         );
+    }
+
+    #[test]
+    fn unknown_model_field_is_rejected_with_suggestion() {
+        let err = toml::from_str::<Config>(
+            "[[profiles]]\nname = \"p\"\nmodels.default_opus_model = \"grok-4.6\"\n",
+        )
+        .unwrap_err();
+        let text = format_toml_error(err);
+        assert!(
+            text.contains("unknown field `default_opus_model`"),
+            "{text}"
+        );
+        assert!(text.contains("did you mean `default_opus`?"), "{text}");
+    }
+
+    #[test]
+    fn unknown_profile_key_suggests_models() {
+        let err =
+            toml::from_str::<Config>("[[profiles]]\nname = \"p\"\nmodel.default = \"opus\"\n")
+                .unwrap_err();
+        let text = format_toml_error(err);
+        assert!(text.contains("unknown field `model`"), "{text}");
+        assert!(text.contains("did you mean `models`?"), "{text}");
+    }
+
+    #[test]
+    fn distant_unknown_field_has_no_suggestion() {
+        let err =
+            toml::from_str::<Config>("[[profiles]]\nname = \"p\"\nzzzzzzzzzzzz = 1\n").unwrap_err();
+        let text = format_toml_error(err);
+        assert!(text.contains("unknown field `zzzzzzzzzzzz`"), "{text}");
+        assert!(!text.contains("did you mean"), "{text}");
+    }
+
+    #[test]
+    fn parse_unknown_field_error_handles_serde_wordings() {
+        let one = parse_unknown_field_error("unknown field `foo`, expected `bar`").unwrap();
+        assert_eq!(one.0, "foo");
+        assert_eq!(one.1, ["bar"]);
+
+        let two =
+            parse_unknown_field_error("unknown field `foo`, expected `bar` or `baz`").unwrap();
+        assert_eq!(two.0, "foo");
+        assert_eq!(two.1, ["bar", "baz"]);
+
+        let many = parse_unknown_field_error(
+            "unknown field `default_opus_model`, expected one of `default`, `default_haiku`, `default_sonnet`, `default_opus`, `subagent`",
+        )
+        .unwrap();
+        assert_eq!(many.0, "default_opus_model");
+        assert_eq!(
+            many.1,
+            [
+                "default",
+                "default_haiku",
+                "default_sonnet",
+                "default_opus",
+                "subagent"
+            ]
+        );
+        assert_eq!(suggest(many.0, many.1), Some("default_opus"));
     }
 
     #[test]

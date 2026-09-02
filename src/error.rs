@@ -11,7 +11,7 @@ pub enum Error {
     #[error("cannot read {0}: {1}")]
     ConfigRead(String, std::io::Error),
     #[error("invalid toml in {0}: {1}")]
-    ConfigParse(String, toml::de::Error),
+    ConfigParse(String, String),
     #[error("invalid config in {0}: {1}")]
     ConfigInvalid(String, String),
     #[error("unknown profile \"{0}\"{1}")]

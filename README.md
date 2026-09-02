@@ -85,6 +85,10 @@ A provider needs exactly one auth source: `env_key` (the name of an environment
 variable holding the token — keeps the secret out of the config file) or `key`
 (the token embedded directly in the config). Set one, not both.
 
+Unknown keys are rejected rather than ignored. A close typo gets a
+`did you mean` hint, so `models.default_opus_model` is an error pointing at
+`models.default_opus`.
+
 `skip_permissions` may also be set in the `[global]` table as a default for
 every profile; a profile's own value (including via `extends`) takes precedence:
 
