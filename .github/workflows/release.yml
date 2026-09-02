@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install musl-tools
         if: endsWith(matrix.target, '-linux-musl')
@@ -48,7 +48,7 @@ jobs:
         run: tar -czf clx-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release clx
 
       - name: Upload tarball artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clx-${{ matrix.target }}
           path: clx-${{ matrix.target }}.tar.gz
@@ -63,10 +63,10 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: clx-*/clx-*.tar.gz
           body: |
