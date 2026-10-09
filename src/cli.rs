@@ -11,7 +11,8 @@ use clap::Parser;
     about = "clx — CLaude eXecutor",
     long_about = "Interactive profile launcher for Claude Code.\n\n\
         Run without a profile for the interactive fuzzy-picker, pass a profile \
-        name to launch it directly, or forward extra args to claude after `--`."
+        name to launch it directly, or pass extra args to claude after `--` — \
+        they are merged over the profile's own args and win on the same flag."
 )]
 pub struct Cli {
     /// List available profiles and exit
@@ -26,7 +27,8 @@ pub struct Cli {
     #[arg(value_name = "PROFILE")]
     pub profile: Option<String>,
 
-    /// Extra args forwarded verbatim to claude (everything after `--`)
+    /// Extra args for claude (everything after `--`); merged over the profile's
+    /// own args, overriding the same flag
     #[arg(last = true, allow_hyphen_values = true, value_name = "ARGS")]
     pub passthrough: Vec<String>,
 }

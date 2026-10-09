@@ -1,90 +1,80 @@
-use crate::config::{Config, Profile, find_profile, suggest_profile};
+use std::collections::BTreeMap;
+
+use crate::args::ArgList;
+use crate::config::{Config, Profile};
+use crate::env::Template;
 use crate::error::Error;
 
-/// Resolve a profile through its inheritance chain, merging from base ancestor
-/// down to the requested profile so derived profiles override their parents.
-pub fn resolve_profile(config: &Config, name: &str) -> Result<Profile, Error> {
-    let mut chain: Vec<&Profile> = Vec::new();
-    let mut current: Option<&str> = Some(name);
+/// A profile with `[global]` and the whole `extends` chain folded in — the
+/// values that actually reach the launcher.
+#[derive(Debug, Clone, Default)]
+pub struct Resolved {
+    /// Templates kept unexpanded: `$` references resolve at launch, so the
+    /// picker preview can show `$TOKEN` rather than a secret.
+    pub env: BTreeMap<String, Template>,
+    pub args: ArgList,
+}
 
-    // Walk the extends chain, collecting profile references.
-    while let Some(cur) = current {
-        if chain.iter().any(|p| p.name == cur) {
-            let cycle = chain
-                .iter()
-                .map(|p| p.name.as_str())
-                .chain(std::iter::once(cur))
-                .collect::<Vec<_>>()
-                .join(" -> ");
-            return Err(Error::CircularExtends(cycle));
-        }
+impl Resolved {
+    /// Fold one generation's values in: env per key, args per flag.
+    fn overlay(&mut self, env: &BTreeMap<String, Template>, args: &[String]) {
+        self.env
+            .extend(env.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.args.merge(args);
+    }
+}
 
-        let entry = find_profile(config, cur).ok_or_else(|| match chain.last() {
-            Some(parent) => Error::UnknownParent(parent.name.clone(), cur.to_string()),
-            None => {
-                let hint = match suggest_profile(config, cur) {
-                    Some(s) => format!(" — did you mean \"{s}\"?"),
-                    None => String::new(),
-                };
-                Error::ProfileNotFound(cur.to_string(), hint)
+// Resolving is the profile domain's work over config data, so the method lives
+// beside `Resolved` instead of in config.rs.
+impl Config {
+    /// Resolve a profile through its inheritance chain: `[global]` first, then
+    /// each ancestor down to the requested profile, so derived profiles override
+    /// their parents.
+    pub fn resolve(&self, name: &str) -> Result<Resolved, Error> {
+        let mut chain: Vec<&Profile> = Vec::new();
+        let mut current: Option<&str> = Some(name);
+
+        // Walk the extends chain, collecting profile references.
+        while let Some(cur) = current {
+            if chain.iter().any(|p| p.name == cur) {
+                let cycle = chain
+                    .iter()
+                    .map(|p| p.name.as_str())
+                    .chain(std::iter::once(cur))
+                    .collect::<Vec<_>>()
+                    .join(" -> ");
+                return Err(Error::CircularExtends(cycle));
             }
-        })?;
 
-        chain.push(entry);
-        current = entry.extends.as_deref();
+            let entry = self.profile(cur).ok_or_else(|| match chain.last() {
+                Some(parent) => Error::UnknownParent(parent.name.clone(), cur.to_string()),
+                None => {
+                    let hint = match self.suggest_profile(cur) {
+                        Some(s) => format!(" — did you mean \"{s}\"?"),
+                        None => String::new(),
+                    };
+                    Error::ProfileNotFound(cur.to_string(), hint)
+                }
+            })?;
+
+            chain.push(entry);
+            current = entry.extends.as_deref();
+        }
+
+        // Merge from the implicit root down to the requested profile.
+        let mut resolved = Resolved::default();
+        resolved.overlay(&self.global.env, &self.global.args);
+        for entry in chain.iter().rev() {
+            resolved.overlay(&entry.env, &entry.args);
+        }
+        Ok(resolved)
     }
-
-    // Merge from ancestor to descendant.
-    let mut merged = Profile::default();
-
-    for entry in chain.iter().rev() {
-        // Merge models field-by-field (child non-None values override parent).
-        if let Some(ref models) = entry.models {
-            merged
-                .models
-                .get_or_insert_with(Default::default)
-                .overlay(models);
-        }
-
-        // Provider: child overrides parent entirely.
-        if entry.provider.is_some() {
-            merged.provider = entry.provider.clone();
-        }
-
-        // Auto-compaction: child overrides parent.
-        if entry.auto_compact_pct.is_some() {
-            merged.auto_compact_pct = entry.auto_compact_pct;
-        }
-        if entry.auto_compact_window.is_some() {
-            merged.auto_compact_window = entry.auto_compact_window;
-        }
-        if entry.max_context_tokens.is_some() {
-            merged.max_context_tokens = entry.max_context_tokens;
-        }
-
-        // skip_permissions: child overrides parent.
-        if entry.skip_permissions.is_some() {
-            merged.skip_permissions = entry.skip_permissions;
-        }
-
-        // effort_level: child overrides parent.
-        if entry.effort_level.is_some() {
-            merged.effort_level = entry.effort_level;
-        }
-    }
-
-    // Fall back to the global default when no profile in the chain set it.
-    if merged.skip_permissions.is_none() {
-        merged.skip_permissions = config.global.skip_permissions;
-    }
-
-    Ok(merged)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{EffortLevel, Global, Models, Provider};
+    use crate::config::Global;
 
     fn cfg(profiles: Vec<Profile>) -> Config {
         Config {
@@ -100,58 +90,86 @@ mod tests {
         }
     }
 
+    fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, Template> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), Template::parse(v).unwrap()))
+            .collect()
+    }
+
+    fn value<'a>(env: &'a BTreeMap<String, Template>, key: &str) -> &'a str {
+        env[key].as_str()
+    }
+
+    fn strs(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
-    fn child_overrides_parent_and_inherits_unset() {
+    fn env_overlays_per_key_and_inherits_untouched() {
         let base = Profile {
-            models: Some(Models {
-                default: Some("opus".into()),
-                subagent: Some("haiku".into()),
-                ..Default::default()
-            }),
-            provider: Some(Provider {
-                base_url: "https://base".into(),
-                env_key: Some("BASE_KEY".into()),
-                key: None,
-            }),
-            effort_level: Some(EffortLevel::High),
-            max_context_tokens: Some(1_000_000),
+            env: map(&[
+                ("ANTHROPIC_MODEL", "opus"),
+                ("ANTHROPIC_BASE_URL", "https://base"),
+            ]),
             ..profile("base")
         };
         let child = Profile {
             extends: Some("base".into()),
-            models: Some(Models {
-                default: Some("sonnet".into()),
-                ..Default::default()
-            }),
+            env: map(&[("ANTHROPIC_MODEL", "sonnet")]),
             ..profile("child")
         };
-        let resolved = resolve_profile(&cfg(vec![base, child]), "child").unwrap();
-        let models = resolved.models.unwrap();
-        assert_eq!(models.default.as_deref(), Some("sonnet")); // overridden
-        assert_eq!(models.subagent.as_deref(), Some("haiku")); // inherited
-        // Provider is inherited untouched.
-        assert_eq!(
-            resolved.provider.unwrap().env_key.as_deref(),
-            Some("BASE_KEY")
-        );
-        assert_eq!(resolved.effort_level, Some(EffortLevel::High)); // inherited
-        assert_eq!(resolved.max_context_tokens, Some(1_000_000)); // inherited
+        let resolved = cfg(vec![base, child]).resolve("child").unwrap();
+        assert_eq!(value(&resolved.env, "ANTHROPIC_MODEL"), "sonnet"); // overridden
+        assert_eq!(value(&resolved.env, "ANTHROPIC_BASE_URL"), "https://base"); // inherited
     }
 
     #[test]
-    fn global_skip_permissions_is_fallback_only() {
-        let mut config = cfg(vec![profile("plain")]);
-        config.global.skip_permissions = Some(true);
-        let resolved = resolve_profile(&config, "plain").unwrap();
-        assert_eq!(resolved.skip_permissions, Some(true));
+    fn global_is_the_root_of_every_chain() {
+        let mut config = cfg(vec![
+            Profile {
+                extends: Some("base".into()),
+                ..profile("leaf")
+            },
+            Profile {
+                env: map(&[("ANTHROPIC_BASE_URL", "https://base")]),
+                args: strs(&["--model", "opus"]),
+                ..profile("base")
+            },
+        ]);
+        config.global.env = map(&[
+            ("ANTHROPIC_MODEL", "haiku"),
+            ("ANTHROPIC_BASE_URL", "https://global"),
+        ]);
+        config.global.args = strs(&["--dangerously-skip-permissions"]);
 
-        let mut config = cfg(vec![Profile {
-            skip_permissions: Some(false),
-            ..profile("explicit")
-        }]);
-        config.global.skip_permissions = Some(true);
-        let resolved = resolve_profile(&config, "explicit").unwrap();
-        assert_eq!(resolved.skip_permissions, Some(false)); // profile wins
+        let resolved = config.resolve("leaf").unwrap();
+        assert_eq!(value(&resolved.env, "ANTHROPIC_MODEL"), "haiku"); // only global sets it
+        assert_eq!(value(&resolved.env, "ANTHROPIC_BASE_URL"), "https://base"); // base wins over global
+        assert_eq!(
+            resolved.args.merged_argv(&[]),
+            strs(&["--dangerously-skip-permissions", "--model", "opus"])
+        );
+    }
+
+    #[test]
+    fn child_args_take_over_and_accumulate() {
+        let base = Profile {
+            args: strs(&["--model=opus", "--plugin-dir", "a"]),
+            ..profile("base")
+        };
+        let child = Profile {
+            extends: Some("base".into()),
+            args: strs(&["--model=sonnet", "--plugin-dir", "b"]),
+            ..profile("child")
+        };
+        let resolved = cfg(vec![base, child]).resolve("child").unwrap();
+        // The taken-over flag lands with the child's items; list flags keep
+        // their relative order and accumulate.
+        assert_eq!(
+            resolved.args.merged_argv(&[]),
+            strs(&["--plugin-dir", "a", "--model=sonnet", "--plugin-dir", "b"])
+        );
     }
 
     #[test]
@@ -164,7 +182,7 @@ mod tests {
             extends: Some("a".into()),
             ..profile("b")
         };
-        let err = resolve_profile(&cfg(vec![a, b]), "a").unwrap_err();
+        let err = cfg(vec![a, b]).resolve("a").unwrap_err();
         assert!(matches!(err, Error::CircularExtends(_)));
     }
 
@@ -176,11 +194,11 @@ mod tests {
         };
         let config = cfg(vec![leaf]);
         assert!(matches!(
-            resolve_profile(&config, "leaf").unwrap_err(),
+            config.resolve("leaf").unwrap_err(),
             Error::UnknownParent(..)
         ));
         assert!(matches!(
-            resolve_profile(&config, "nope").unwrap_err(),
+            config.resolve("nope").unwrap_err(),
             Error::ProfileNotFound(..)
         ));
     }

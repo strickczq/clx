@@ -2,18 +2,17 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use crate::ansi::{BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint};
-use crate::config::{Config, find_profile};
+use crate::config::Config;
 use crate::error::Error;
-use crate::launcher::compute_preview_env;
-use crate::profile::resolve_profile;
 
 // MARK: - Preview builder
 
 /// Build the ANSI-coloured preview text for a profile.
 /// fzf renders this in the preview panel via `--ansi`; clx prints it from the
-/// hidden `--preview` subcommand.
-pub fn preview_text(config: &Config, name: &str) -> String {
-    let entry = match find_profile(config, name) {
+/// hidden `--preview` subcommand. `extra_args` are this invocation's
+/// passthrough, so the shown command line is the one that would actually run.
+pub fn preview_text(config: &Config, name: &str, extra_args: &[String]) -> String {
+    let entry = match config.profile(name) {
         Some(e) => e,
         None => return String::new(),
     };
@@ -30,25 +29,23 @@ pub fn preview_text(config: &Config, name: &str) -> String {
 
     lines.push(String::new());
 
-    // Resolved env vars (placeholder mode — no real tokens).
-    match resolve_profile(config, name) {
+    // Env values stay as written: a `$VAR` reference stays opaque here, so a
+    // secret routed through one is never shown. A literal value is shown as
+    // written — the config file holds it in the clear anyway, so references are
+    // the way to keep secrets out of sight.
+    match config.resolve(name) {
         Ok(resolved) => {
-            let env_vars = compute_preview_env(&resolved);
-            if env_vars.is_empty() {
+            if resolved.env.is_empty() {
                 lines.push(paint(DIM, "  (no env overrides — bare claude launch)"));
             } else {
-                for (k, v) in &env_vars {
-                    lines.push(format!(
-                        "  {}={} {}",
-                        paint(DIM, k),
-                        paint(GREEN, v),
-                        paint(DIM, "\\")
-                    ));
+                for (k, v) in &resolved.env {
+                    lines.push(format!("  {}={}", paint(DIM, k), paint(GREEN, v.as_str())));
                 }
             }
             let mut launch_line = format!("  {}", paint(BOLD, "claude"));
-            if resolved.skip_permissions.unwrap_or(false) {
-                launch_line.push_str(" --dangerously-skip-permissions");
+            for arg in resolved.args.merged_argv(extra_args) {
+                launch_line.push(' ');
+                launch_line.push_str(&paint(GREEN, &shell_quote(&arg)));
             }
             lines.push(launch_line);
         }
@@ -83,18 +80,29 @@ pub enum Selection {
 /// can fall back), [`Selection::Cancelled`] if the user aborted, or
 /// [`Selection::Picked`] with the chosen name. Errors only on an unexpected I/O
 /// failure while running fzf.
-pub fn select_profile(config: &Config) -> Result<Selection, Error> {
+pub fn select_profile(config: &Config, extra_args: &[String]) -> Result<Selection, Error> {
     // Feed fzf one profile name per line. Only names are listed and searched;
     // each profile's description is shown in the preview panel instead.
     let stdin_lines: Vec<String> = config.profiles.iter().map(|p| p.name.clone()).collect();
 
     // Re-invoke ourselves as the preview command: fzf substitutes the selected
-    // line (the profile name) for `{}`, already shell-quoted.
+    // line (the profile name) for `{}`, already shell-quoted. This invocation's
+    // passthrough rides along so the preview shows the real command line.
     let exe = std::env::current_exe()
         .ok()
         .and_then(|p| p.to_str().map(str::to_owned))
         .unwrap_or_else(|| "clx".to_string());
-    let preview_cmd = format!("{} --preview {{}}", shell_quote(&exe));
+    let mut preview_cmd = format!("{} --preview {{}}", shell_quote(&exe));
+    if !extra_args.is_empty() {
+        preview_cmd.push_str(" --");
+        for arg in extra_args {
+            preview_cmd.push(' ');
+            // fzf substitutes `{...}` placeholders wherever it finds them, even
+            // inside our quotes; break the placeholder syntax with a backslash,
+            // which fzf strips again before the shell sees it.
+            preview_cmd.push_str(&shell_quote(arg).replace('{', "\\{"));
+        }
+    }
 
     let spawned = Command::new("fzf")
         .args([
@@ -137,5 +145,38 @@ pub fn select_profile(config: &Config) -> Result<Selection, Error> {
         }
         // Exit codes 1, 130, etc. mean "no match" or "user cancelled".
         _ => Ok(Selection::Cancelled),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Global, Profile};
+    use crate::env::Template;
+
+    #[test]
+    fn preview_shows_references_verbatim_and_the_final_command_line() {
+        let config = Config {
+            global: Global::default(),
+            profiles: vec![Profile {
+                name: "work".into(),
+                env: [(
+                    "ANTHROPIC_AUTH_TOKEN".to_string(),
+                    Template::parse("$TOKEN").unwrap(),
+                )]
+                .into_iter()
+                .collect(),
+                args: vec!["--model".into(), "opus".into()],
+                ..Default::default()
+            }],
+        };
+
+        let text = preview_text(&config, "work", &["--model".into(), "sonnet".into()]);
+
+        assert!(text.contains("ANTHROPIC_AUTH_TOKEN"), "{text}");
+        assert!(text.contains("$TOKEN"), "{text}"); // never expanded here
+        assert!(text.contains("'--model'"), "{text}");
+        assert!(text.contains("'sonnet'"), "{text}");
+        assert!(!text.contains("'opus'"), "{text}"); // taken over by passthrough
     }
 }

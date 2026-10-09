@@ -1,8 +1,8 @@
 [package]
 name = "clx"
-version = "0.4.6"
+version = "0.5.0"
 edition = "2024"
-description = "CLaude eXecutor — interactive profile selection, configurable models/providers, exec into claude"
+description = "CLaude eXecutor — interactive profile launcher: env/args profiles, exec into claude"
 license = "MIT"
 repository = "https://github.com/strickczq/clx"
 

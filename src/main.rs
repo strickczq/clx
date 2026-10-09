@@ -1,9 +1,13 @@
 mod ansi;
+mod args;
+mod claude_flags;
 mod cli;
 mod config;
+mod env;
 mod error;
 mod launcher;
 mod profile;
+mod suggest;
 mod ui;
 
 use std::io::IsTerminal;
@@ -35,11 +39,11 @@ fn run() -> Result<(), Error> {
     // Parse first: clap handles `--help`/`--version` (printing and exiting)
     // before we touch the config, so they work without a config file.
     let cli = Cli::parse();
-    let cfg = config::load_config()?;
+    let cfg = config::Config::load()?;
 
     // Hidden preview subcommand — print and exit (used by fzf).
     if let Some(name) = cli.preview {
-        println!("{}", ui::preview_text(&cfg, &name));
+        println!("{}", ui::preview_text(&cfg, &name, &cli.passthrough));
         return Ok(());
     }
 
@@ -52,7 +56,7 @@ fn run() -> Result<(), Error> {
     // Resolve profile name — interactive or from CLI.
     let profile_name = match cli.profile {
         Some(name) => name,
-        None => match ui::select_profile(&cfg)? {
+        None => match ui::select_profile(&cfg, &cli.passthrough)? {
             ui::Selection::Picked(name) => name,
             ui::Selection::Cancelled => {
                 eprintln!(
@@ -75,7 +79,7 @@ fn run() -> Result<(), Error> {
     };
 
     // Resolve inheritance chain.
-    let resolved = profile::resolve_profile(&cfg, &profile_name)?;
+    let resolved = cfg.resolve(&profile_name)?;
 
     // Replace current process with claude — execve never returns on success.
     launcher::launch(&resolved, &cli.passthrough)?;

@@ -20,10 +20,10 @@ pub enum Error {
     CircularExtends(String),
     #[error("profile \"{0}\" extends unknown profile \"{1}\"")]
     UnknownParent(String, String),
-    #[error("environment variable {0} is not set")]
-    MissingEnvVar(String),
-    #[error("provider has no auth configured: set `env_key` or `key`")]
-    ProviderMissingAuth,
+    #[error("env.{key}: environment variable {var} is not set")]
+    MissingEnvVar { key: String, var: String },
+    #[error("env.{key}: environment variable {var} is set but not valid Unicode")]
+    NotUnicodeEnvVar { key: String, var: String },
     #[error("failed to launch claude: {0}")]
     ExecFailed(std::io::Error),
     #[error("failed to run fzf: {0} — is fzf installed?")]
