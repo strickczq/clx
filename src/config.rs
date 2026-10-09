@@ -39,6 +39,10 @@ pub struct Profile {
     pub name: String,
     pub extends: Option<String>,
     pub description: Option<String>,
+    /// Omit from every listing (picker, fzf fallback, `--list`) — for profiles
+    /// that exist only to be extended. Launchable by name as usual.
+    #[serde(default)]
+    pub hidden: bool,
     /// Environment variables to launch with, keyed by the exact variable name.
     #[serde(default, deserialize_with = "crate::env::de_env_map")]
     pub env: BTreeMap<String, Template>,
@@ -76,9 +80,16 @@ impl Config {
         Ok(config)
     }
 
-    /// Look up a profile by name.
+    /// Look up a profile by name, hidden or not.
     pub fn profile(&self, name: &str) -> Option<&Profile> {
         self.profiles.iter().find(|p| p.name == name)
+    }
+
+    /// The profiles listings show: the picker, its fzf-missing fallback, and
+    /// `--list`. Hidden profiles are omitted here but stay reachable through
+    /// [`Config::profile`] and the `extends` chain.
+    pub fn visible_profiles(&self) -> impl Iterator<Item = &Profile> {
+        self.profiles.iter().filter(|p| !p.hidden)
     }
 
     /// Closest profile name to `name` for a "did you mean" hint; `Some` only
@@ -205,6 +216,17 @@ mod tests {
         let text = suggest::format_toml_error(err);
         assert!(text.contains("unknown field `zzzzzzzzzzzz`"), "{text}");
         assert!(!text.contains("did you mean"), "{text}");
+    }
+
+    #[test]
+    fn hidden_profiles_drop_out_of_listings_but_stay_resolvable() {
+        let config = parse(
+            "[[profiles]]\nname = \"base\"\nhidden = true\n\n[[profiles]]\nname = \"work\"\n",
+        )
+        .unwrap();
+        let listed: Vec<&str> = config.visible_profiles().map(|p| p.name.as_str()).collect();
+        assert_eq!(listed, ["work"]);
+        assert!(config.profile("base").is_some());
     }
 
     #[test]

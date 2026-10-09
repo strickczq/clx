@@ -76,12 +76,17 @@ env.ANTHROPIC_MODEL = "sonnet"
 | `name`        | Profile name shown in the picker                        |
 | `extends`     | Parent profile to inherit from                          |
 | `description` | Human-readable description (shown in picker preview)    |
+| `hidden`      | Keep out of the picker and `--list` (extend-only bases) |
 | `env`         | Environment variables, keyed by the exact variable name |
 | `args`        | Arguments passed to `claude`                            |
 
 `[global]` takes the same `env` and `args` and is the implicit root of every
 profile: it is merged first, then the profile's own values (including via
 `extends`) take precedence.
+
+A `hidden` profile exists only to be extended by others: it is omitted from the
+picker, the fzf-missing fallback list, and `--list`, but `clx <name>` still
+launches it directly and `extends` resolves it as usual.
 
 ### env
 

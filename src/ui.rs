@@ -83,7 +83,7 @@ pub enum Selection {
 pub fn select_profile(config: &Config, extra_args: &[String]) -> Result<Selection, Error> {
     // Feed fzf one profile name per line. Only names are listed and searched;
     // each profile's description is shown in the preview panel instead.
-    let stdin_lines: Vec<String> = config.profiles.iter().map(|p| p.name.clone()).collect();
+    let stdin_lines: Vec<String> = config.visible_profiles().map(|p| p.name.clone()).collect();
 
     // Re-invoke ourselves as the preview command: fzf substitutes the selected
     // line (the profile name) for `{}`, already shell-quoted. This invocation's

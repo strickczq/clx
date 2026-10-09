@@ -173,6 +173,21 @@ mod tests {
     }
 
     #[test]
+    fn hidden_extends_target_resolves() {
+        let base = Profile {
+            hidden: true,
+            env: map(&[("ANTHROPIC_MODEL", "opus")]),
+            ..profile("base")
+        };
+        let child = Profile {
+            extends: Some("base".into()),
+            ..profile("child")
+        };
+        let resolved = cfg(vec![base, child]).resolve("child").unwrap();
+        assert_eq!(value(&resolved.env, "ANTHROPIC_MODEL"), "opus");
+    }
+
+    #[test]
     fn detects_cycles() {
         let a = Profile {
             extends: Some("b".into()),

@@ -89,7 +89,7 @@ fn run() -> Result<(), Error> {
 /// Print each profile as `name<TAB>description` to `out`, colouring when `color`
 /// is set. Shared by `--list` (stdout) and the fzf-missing fallback (stderr).
 fn print_profiles(out: &mut impl std::io::Write, cfg: &config::Config, color: bool) {
-    for p in &cfg.profiles {
+    for p in cfg.visible_profiles() {
         let name = paint_if(CYAN, &p.name, color);
         let _ = match &p.description {
             Some(d) => writeln!(out, "{name}\t{}", paint_if(DIM, d, color)),
