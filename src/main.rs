@@ -7,6 +7,7 @@ mod env;
 mod error;
 mod launcher;
 mod profile;
+mod shell;
 mod suggest;
 mod ui;
 
@@ -80,6 +81,12 @@ fn run() -> Result<(), Error> {
 
     // Resolve inheritance chain.
     let resolved = cfg.resolve(&profile_name)?;
+
+    // `--dry-run` — print the full command without launching claude.
+    if cli.dry_run {
+        print!("{}", launcher::render(&resolved, &cli.passthrough)?);
+        return Ok(());
+    }
 
     // Replace current process with claude — execve never returns on success.
     launcher::launch(&resolved, &cli.passthrough)?;

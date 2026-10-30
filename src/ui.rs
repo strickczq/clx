@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use crate::ansi::{BOLD, CYAN, DIM, GREEN, RED, YELLOW, paint};
 use crate::config::Config;
 use crate::error::Error;
+use crate::shell;
 
 // MARK: - Preview builder
 
@@ -45,9 +46,26 @@ pub fn preview_text(config: &Config, name: &str, extra_args: &[String]) -> Strin
             let mut launch_line = format!("  {}", paint(BOLD, "claude"));
             for arg in resolved.args.merged_argv(extra_args) {
                 launch_line.push(' ');
-                launch_line.push_str(&paint(GREEN, &shell_quote(&arg)));
+                launch_line.push_str(&paint(GREEN, &shell::quote(&arg)));
             }
             lines.push(launch_line);
+
+            // The flags clx adds are not in `args`, so show that they exist
+            // without dumping the text into the panel.
+            if !resolved.append_system_prompt.is_empty() {
+                lines.push(format!(
+                    "  {} {} parts",
+                    paint(DIM, "+ --append-system-prompt"),
+                    resolved.append_system_prompt.len()
+                ));
+            }
+            if !resolved.agent_names.is_empty() {
+                lines.push(format!(
+                    "  {} {}",
+                    paint(DIM, "+ --agents"),
+                    paint(DIM, &resolved.agent_names.join(", "))
+                ));
+            }
         }
         Err(e) => {
             lines.push(paint(RED, &format!("resolve error: {e}")));
@@ -55,11 +73,6 @@ pub fn preview_text(config: &Config, name: &str, extra_args: &[String]) -> Strin
     }
 
     lines.join("\n")
-}
-
-/// Single-quote a string for safe embedding in a shell command.
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 // MARK: - Public API
@@ -92,7 +105,7 @@ pub fn select_profile(config: &Config, extra_args: &[String]) -> Result<Selectio
         .ok()
         .and_then(|p| p.to_str().map(str::to_owned))
         .unwrap_or_else(|| "clx".to_string());
-    let mut preview_cmd = format!("{} --preview {{}}", shell_quote(&exe));
+    let mut preview_cmd = format!("{} --preview {{}}", shell::quote(&exe));
     if !extra_args.is_empty() {
         preview_cmd.push_str(" --");
         for arg in extra_args {
@@ -100,7 +113,7 @@ pub fn select_profile(config: &Config, extra_args: &[String]) -> Result<Selectio
             // fzf substitutes `{...}` placeholders wherever it finds them, even
             // inside our quotes; break the placeholder syntax with a backslash,
             // which fzf strips again before the shell sees it.
-            preview_cmd.push_str(&shell_quote(arg).replace('{', "\\{"));
+            preview_cmd.push_str(&shell::quote(arg).replace('{', "\\{"));
         }
     }
 
@@ -151,13 +164,12 @@ pub fn select_profile(config: &Config, extra_args: &[String]) -> Result<Selectio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Global, Profile};
+    use crate::config::Profile;
     use crate::env::Template;
 
     #[test]
     fn preview_shows_references_verbatim_and_the_final_command_line() {
         let config = Config {
-            global: Global::default(),
             profiles: vec![Profile {
                 name: "work".into(),
                 env: [(
@@ -169,6 +181,7 @@ mod tests {
                 args: vec!["--model".into(), "opus".into()],
                 ..Default::default()
             }],
+            ..Default::default()
         };
 
         let text = preview_text(&config, "work", &["--model".into(), "sonnet".into()]);

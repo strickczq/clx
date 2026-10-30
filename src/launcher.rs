@@ -6,6 +6,7 @@ use std::process::Command;
 use crate::env::{ExpandError, Lookup, Template};
 use crate::error::Error;
 use crate::profile::Resolved;
+use crate::shell;
 
 /// Variable namespaces that belong to claude's own configuration. Everything
 /// inherited under these prefixes is wiped, so the profile is the only source
@@ -79,6 +80,47 @@ fn build_command(
     cmd
 }
 
+/// Flags whose text clx owns through profile fields. Seeing one in `args`
+/// means two sources compete for a flag claude reads once, so clx rejects it
+/// instead of letting one silently win.
+const MANAGED_FLAGS: &[&str] = &[
+    "--append-system-prompt",
+    "--append-system-prompt-file",
+    "--agents",
+];
+
+/// Add the flags clx owns from the resolved profile fields and reject
+/// hand-written ones in `args`.
+fn with_managed_flags(mut argv: Vec<String>, resolved: &Resolved) -> Result<Vec<String>, Error> {
+    for arg in &argv {
+        let flag = arg.split_once('=').map_or(arg.as_str(), |(flag, _)| flag);
+        if MANAGED_FLAGS.contains(&flag) {
+            return Err(Error::ReservedFlag(flag.to_owned()));
+        }
+    }
+    if !resolved.append_system_prompt.is_empty() {
+        inject_flag(
+            &mut argv,
+            "--append-system-prompt",
+            &resolved.append_system_prompt.join("\n\n"),
+        );
+    }
+    if let Some(agents) = &resolved.agents {
+        inject_flag(&mut argv, "--agents", agents);
+    }
+    Ok(argv)
+}
+
+/// Insert `--flag <value>` before any `--` separator, so it stays a flag
+/// instead of becoming positional text.
+fn inject_flag(argv: &mut Vec<String>, flag: &str, value: &str) {
+    let at = argv
+        .iter()
+        .position(|arg| arg == "--")
+        .unwrap_or(argv.len());
+    argv.splice(at..at, [flag.to_owned(), value.to_owned()]);
+}
+
 /// Replace the current process with `claude`, passing through extra args.
 ///
 /// `claude` inherits clx's full environment except the managed namespaces (see
@@ -89,9 +131,32 @@ fn build_command(
 /// never returns on success.
 pub fn launch(resolved: &Resolved, extra_args: &[String]) -> Result<(), Error> {
     let env = expand_env(&resolved.env, &lookup_env)?;
-    let argv = resolved.args.merged_argv(extra_args);
+    let argv = with_managed_flags(resolved.args.merged_argv(extra_args), resolved)?;
     let mut cmd = build_command(&argv, &env, std::env::vars_os().map(|(name, _)| name));
     Err(Error::ExecFailed(cmd.exec()))
+}
+
+/// The command `launch` would run: expanded env assignments, then the argv,
+/// quoted for a POSIX shell. `$VAR` references are expanded here, so the
+/// output can contain secrets.
+pub fn render(resolved: &Resolved, extra_args: &[String]) -> Result<String, Error> {
+    let env = expand_env(&resolved.env, &lookup_env)?;
+    let argv = with_managed_flags(resolved.args.merged_argv(extra_args), resolved)?;
+
+    let mut out = String::new();
+    for (key, value) in &env {
+        out.push_str(key);
+        out.push('=');
+        out.push_str(&shell::quote(value));
+        out.push_str(" \\\n");
+    }
+    out.push_str("claude");
+    for arg in &argv {
+        out.push(' ');
+        out.push_str(&shell::quote(arg));
+    }
+    out.push('\n');
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -194,6 +259,81 @@ mod tests {
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn prompts_from_the_chain_are_joined_before_the_separator() {
+        let resolved = Resolved {
+            append_system_prompt: vec!["base".into(), "child".into()],
+            ..Default::default()
+        };
+        let argv = with_managed_flags(strs(&["--model", "opus", "--", "do the thing"]), &resolved)
+            .unwrap();
+        assert_eq!(
+            argv,
+            strs(&[
+                "--model",
+                "opus",
+                "--append-system-prompt",
+                "base\n\nchild",
+                "--",
+                "do the thing",
+            ])
+        );
+    }
+
+    #[test]
+    fn a_hand_written_prompt_flag_in_args_is_rejected() {
+        for flag in [
+            "--append-system-prompt",
+            "--append-system-prompt-file",
+            "--agents",
+        ] {
+            let err = with_managed_flags(strs(&[flag, "text"]), &Resolved::default()).unwrap_err();
+            assert!(matches!(err, Error::ReservedFlag(_)), "{flag}");
+        }
+        let err = with_managed_flags(strs(&["--append-system-prompt=text"]), &Resolved::default())
+            .unwrap_err();
+        assert!(matches!(err, Error::ReservedFlag(_)));
+    }
+
+    #[test]
+    fn agents_json_becomes_an_agents_flag() {
+        let resolved = Resolved {
+            agents: Some(r#"{"worker":{"model":"haiku"}}"#.into()),
+            ..Default::default()
+        };
+        let argv = with_managed_flags(strs(&["--model", "opus"]), &resolved).unwrap();
+        assert_eq!(
+            argv,
+            strs(&[
+                "--model",
+                "opus",
+                "--agents",
+                r#"{"worker":{"model":"haiku"}}"#
+            ])
+        );
+    }
+
+    #[test]
+    fn render_prints_env_and_the_full_command() {
+        let resolved = Resolved {
+            env: templates(&[("ANTHROPIC_MODEL", "m")]),
+            append_system_prompt: vec!["one".into(), "two".into()],
+            agents: Some(r#"{"worker":{}}"#.into()),
+            ..Default::default()
+        };
+        let out = render(&resolved, &[]).unwrap();
+        assert!(out.contains("ANTHROPIC_MODEL='m' \\\n"), "{out}");
+        assert!(out.contains("--append-system-prompt"), "{out}");
+        assert!(out.contains("'one\n\ntwo'"), "{out}");
+        assert!(out.contains("--agents' '{\"worker\":{}}'"), "{out}");
+    }
+
+    #[test]
+    fn no_prompt_fields_adds_no_flags() {
+        let argv = with_managed_flags(strs(&["--model", "opus"]), &Resolved::default()).unwrap();
+        assert_eq!(argv, strs(&["--model", "opus"]));
     }
 
     fn templates(pairs: &[(&str, &str)]) -> BTreeMap<String, Template> {

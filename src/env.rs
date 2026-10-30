@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use thiserror::Error;
 
@@ -57,6 +58,16 @@ impl Template {
         &self.raw
     }
 
+    /// A template with no references, for values clx generates itself — model
+    /// limits from the `models` table.
+    pub fn literal(text: impl Into<String>) -> Self {
+        let raw = text.into();
+        Self {
+            segments: vec![Segment::Literal(raw.clone())],
+            raw,
+        }
+    }
+
     /// Expand against `lookup`, which reads clx's own environment.
     pub fn expand(&self, lookup: &impl Fn(&str) -> Lookup) -> Result<String, ExpandError> {
         let mut expanded = String::with_capacity(self.raw.len());
@@ -71,6 +82,16 @@ impl Template {
             }
         }
         Ok(expanded)
+    }
+}
+
+/// Deserialize a template from a TOML string. The `env` table goes through
+/// [`de_env_map`] instead, which accepts any scalar and names the key in the
+/// error; this impl is for fields that are plain strings, like `model`.
+impl<'de> Deserialize<'de> for Template {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text).map_err(de::Error::custom)
     }
 }
 

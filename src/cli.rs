@@ -19,6 +19,10 @@ pub struct Cli {
     #[arg(short, long)]
     pub list: bool,
 
+    /// Print the full launch command and exit, without running claude
+    #[arg(long)]
+    pub dry_run: bool,
+
     /// Hidden: print a profile's preview text (invoked by fzf)
     #[arg(long, hide = true, value_name = "NAME")]
     pub preview: Option<String>,
