@@ -351,6 +351,23 @@ itself comes from the profile and nowhere else. Every other variable — `TERM`,
 locale, display — passes through untouched unless the profile declares it, in
 which case the profile's value wins.
 
+## Changes in 0.6
+
+- **One model per profile** — `model.main` / `model.sub` are gone. `model`
+  names one model, and that name fills every model variable, including
+  `CLAUDE_CODE_SUBAGENT_MODEL`.
+- **`models.toml` is required** — each model's context, output, and effort
+  live there, keyed by model id. A `model` must name an `id` or set
+  `builtin = true` for a Claude model.
+- **Split config** — `config.toml`, `models.toml`, and `conf.d/*.toml` merge
+  in that order.
+- **Subagents** — `[[profiles.agents]]` becomes claude's `--agents`, with a
+  per-agent model, prompt, and any frontmatter field. A subagent that needs
+  its own model is defined there, not per profile.
+- **`--dry-run`** — prints the full launch command.
+- `--append-subagent-system-prompt` is no longer managed by clx. Use an
+  `agents` entry for per-subagent prompts.
+
 ## Changes in 0.5
 
 0.5 replaces the typed profile fields of earlier versions (`models.*`,
