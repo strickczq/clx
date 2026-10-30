@@ -33,7 +33,7 @@ With [mise](https://mise.jdx.dev) (prebuilt binary from the latest release):
 ```bash
 mise use -g github:strickczq/clx
 # or pin a version
-mise use -g github:strickczq/clx@v0.5.0
+mise use -g github:strickczq/clx@v0.6.0
 ```
 
 With cargo:
